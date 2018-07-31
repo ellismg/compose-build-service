@@ -1,0 +1,4 @@
+config:
+  aws:region: us-west-2
+  compose-build-service:travisToken:
+    secure: AAABAPr07Npl/Y8NkzB8obWYE1BM/WUflv8QEJzg9tWyzKwTmg/ox6E8gwlUqbDf5sqjCLvZ

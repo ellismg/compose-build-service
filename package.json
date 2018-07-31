@@ -1,0 +1,19 @@
+{
+    "name": "compose-build-service",
+    "main": "bin/index.js",
+    "typings": "bin/index.d.ts",
+    "scripts": {
+        "build": "tsc"
+    },
+    "devDependencies": {
+        "@types/node": "latest",
+        "typescript": "^2.7.2"
+    },
+    "dependencies": {
+        "@pulumi/aws": "^0.14.0",
+        "@pulumi/aws-serverless": "^0.14.0",
+        "@pulumi/pulumi": "^0.14.0",
+        "aws-sdk": "^2.283.1",
+        "axios": "^0.18.0"
+    }
+}
