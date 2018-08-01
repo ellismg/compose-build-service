@@ -1,4 +1,6 @@
 config:
   aws:region: us-west-2
+  compose-build-service:ghToken:
+    secure: AAABAADE3zzKkaAzJ/ryOblJIS0qkIc3lWxgqFd7HnykMqFK5ao2n19FGO5IRw2zLGw0SDMXFTP/1c2ztiZGTCK6eCfaNGDg
   compose-build-service:travisToken:
     secure: AAABAPr07Npl/Y8NkzB8obWYE1BM/WUflv8QEJzg9tWyzKwTmg/ox6E8gwlUqbDf5sqjCLvZ

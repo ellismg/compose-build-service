@@ -11,6 +11,39 @@ const dependencyMap: {[index: string]: string[]} = {
     "pulumi-cloud": ["pulumi", "pulumi-aws", "pulumi-aws-infra" ],
 }
 
+const downstreamMap = computeDownstreamMap(dependencyMap);
+
+// Given a dependency map (e.g. and object which for each key as an array of repositories it depends on), constructs
+// a new map where each key is a repository and the values are the repositories "downstream", i.e. they consume the
+// given repository either directly or indirectly.
+function computeDownstreamMap(map: {[index: string]: string[]}) : {[index: string]: string[]} {
+    const ret: {[index: string]: string[]} = {}
+
+    for (let repo of Object.keys(map)) {
+        const workQueue = [repo];
+        const visted = new Set<string>();
+
+        while (workQueue.length > 0) {
+            let cur = workQueue.shift()!;
+
+            if (!visted.has(cur)) {
+                visted.add(cur);
+
+                for (let repo2 of Object.keys(map)) {
+                    if ((map[repo2]).indexOf(cur) >= 0) {
+                        workQueue.push(repo2)
+                    }
+                }
+            }
+        }
+
+        visted.delete(repo);
+        ret[repo] = Array.from(visted);
+    }
+
+    return ret;
+}
+
 const jobsTable = new aws.dynamodb.Table("jobsTable", {
     attributes: [{
         name: "id",
@@ -22,6 +55,7 @@ const jobsTable = new aws.dynamodb.Table("jobsTable", {
 });
 
 const travisToken = new pulumi.Config(pulumi.getProject()).require("travisToken");
+const ghToken = new pulumi.Config(pulumi.getProject()).require("ghToken");
 
 const api = new serverless.apigateway.API("api", {
     routes: [
@@ -29,12 +63,30 @@ const api = new serverless.apigateway.API("api", {
             method: "POST",
             path: "/jobs",
             handler: async (req) => {
+                const body = JSON.parse(req.isBase64Encoded ? Buffer.from(req.body, "base64").toString() : req.body);
+
+                if (body.branch === undefined || body.repo === undefined) {
+                    return {
+                        statusCode: 400,
+                        body: "missing branch or repo in request"
+                    }
+                }
+
+                if (downstreamMap[body.repo] === undefined) {
+                    return {
+                        statusCode: 400,
+                        body: "unknown repository"
+                    }
+                }
+
                 const id = (new Date().valueOf()).toString();
                 const repositories: {[key: string]: RepositoryInfo} = {}
 
-                for (let repo of Object.keys(dependencyMap)) {
+                for (let repo of [body.repo].concat(downstreamMap[body.repo])) {
                     repositories[repo] = {
                         buildComplete: false,
+                        branch: body.branch,
+                        ...await getBranchAndRef(repo, body.branch)
                     }
                 }
 
@@ -108,7 +160,24 @@ const api = new serverless.apigateway.API("api", {
     ]
 });
 
-async function launchReadyLegs(job: JobData) {
+async function getBranchAndRef(repo: string, branch: string) : Promise<{branch: string, sha: string}> {
+    const octokit = new (await import("@octokit/rest"))();
+    octokit.authenticate({type: "token", token: ghToken});
+
+    let rsp = await octokit.gitdata.getReference({owner: "pulumi", repo: repo, ref: `refs/heads/${branch}`});
+    if (rsp.status == 200) {
+        return { branch: branch, sha: rsp.data.object.sha }
+    }
+
+    rsp = await octokit.gitdata.getReference({owner: "pulumi", repo: repo, ref: `refs/heads/master`});
+    if (rsp.status == 200) {
+        return { branch: "master", sha: rsp.data.object.sha }
+    }
+
+    throw new Error(`bad response from GitHub: ${rsp.status}`);
+}
+
+async function launchReadyLegs(job: JobData) : Promise<void> {
     const awssdk = await import("aws-sdk");
     const axios = await import("axios");
     const dynamo = new awssdk.DynamoDB.DocumentClient();
@@ -130,13 +199,13 @@ async function launchReadyLegs(job: JobData) {
                             "merge_mode": "deep_merge",
                             "env": {
                                 "global": {
-                                    "PULUMI_COMPOSED_BUILD": true
+                                    "PULUMI_COMPOSE_BUILD_SHA": job.repositories[repo].sha
                                 }
                             },
                             "script": `../scripts/compose/run-compose ${job.id}`
                         },
                         "message": "WIP: Composed Build",
-                        "branch": "feature/ellismg/compose-build"
+                        "branch": job.repositories[repo].branch
                     }
                 },
                 {
@@ -171,5 +240,7 @@ type JobData = {
 
 type RepositoryInfo = {
     buildComplete: boolean
+    branch: string
+    sha: string
     travisRequest?: string
 }

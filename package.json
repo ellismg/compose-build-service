@@ -10,6 +10,7 @@
         "typescript": "^2.7.2"
     },
     "dependencies": {
+        "@octokit/rest": "^15.9.5",
         "@pulumi/aws": "^0.14.0",
         "@pulumi/aws-serverless": "^0.14.0",
         "@pulumi/pulumi": "^0.14.0",
