@@ -85,7 +85,6 @@ const api = new serverless.apigateway.API("api", {
                 for (let repo of [body.repo].concat(downstreamMap[body.repo])) {
                     repositories[repo] = {
                         buildComplete: false,
-                        branch: body.branch,
                         ...await getBranchAndRef(repo, body.branch)
                     }
                 }
@@ -108,16 +107,51 @@ const api = new serverless.apigateway.API("api", {
             path: "/job/{id}",
             handler: async (req) => {
                 const awssdk = await import("aws-sdk");
+                const axios = await import("axios");
                 const dynamo = new awssdk.DynamoDB.DocumentClient();
 
-                const value = await dynamo.get({
+                const value = (await dynamo.get({
                     TableName: jobsTable.name.get(),
                     Key: { id: req.pathParameters.id }
-                }).promise();
+                }).promise());
+
+                const job = <JobData>value.Item!;
+
+                for (let repo of Object.keys(job.repositories)) {
+                    if (job.repositories[repo].travisBuild === undefined &&
+                        job.repositories[repo].travisRequest !== undefined) {
+
+                        const rsp = await axios.default.get(`https://api.travis-ci.com/repo/pulumi%2F${repo}/request/${job.repositories[repo].travisRequest}`,
+                            {
+                                headers: {
+                                    "Content-Type": "application/json",
+                                    "Travis-API-Version": "3",
+                                    "Authorization": `token ${travisToken}`
+                                }
+                            });
+
+                        if (rsp.data.builds !== undefined) {
+                            await dynamo.update({
+                                TableName: jobsTable.name.get(),
+                                Key: { id: req.pathParameters.id },
+                                UpdateExpression: `SET repositories.#repo.travisBuild = :travisBuild`,
+                                ExpressionAttributeNames: {
+                                    "#repo": repo
+                                },
+                                ExpressionAttributeValues: {
+                                    ":travisBuild": rsp.data.builds[0].id
+                                },
+                                ReturnValues: "NONE"
+                            }).promise();
+
+                            job.repositories[repo].travisBuild = rsp.data.builds[0].id;
+                        }
+                    }
+                }
 
                 return {
                     statusCode: 200,
-                    body: `${JSON.stringify(value.Item, null, 2)}\n`,
+                    body: `${JSON.stringify(job, null, 2)}\n`,
                 };
             },
         },
@@ -164,12 +198,12 @@ async function getBranchAndRef(repo: string, branch: string) : Promise<{branch: 
     const octokit = new (await import("@octokit/rest"))();
     octokit.authenticate({type: "token", token: ghToken});
 
-    let rsp = await octokit.gitdata.getReference({owner: "pulumi", repo: repo, ref: `refs/heads/${branch}`});
+    let rsp = await octokit.gitdata.getReference({owner: "pulumi", repo: repo, ref: `heads/${branch}`});
     if (rsp.status == 200) {
         return { branch: branch, sha: rsp.data.object.sha }
     }
 
-    rsp = await octokit.gitdata.getReference({owner: "pulumi", repo: repo, ref: `refs/heads/master`});
+    rsp = await octokit.gitdata.getReference({owner: "pulumi", repo: repo, ref: `heads/master`});
     if (rsp.status == 200) {
         return { branch: "master", sha: rsp.data.object.sha }
     }
@@ -199,7 +233,8 @@ async function launchReadyLegs(job: JobData) : Promise<void> {
                             "merge_mode": "deep_merge",
                             "env": {
                                 "global": {
-                                    "PULUMI_COMPOSE_BUILD_SHA": job.repositories[repo].sha
+                                    "PULUMI_COMPOSE_BUILD_SHA": job.repositories[repo].sha,
+                                    "PULUMI_COMPOSE_BUILD_ID": job.id
                                 }
                             },
                             "script": `../scripts/compose/run-compose ${job.id}`
@@ -209,7 +244,6 @@ async function launchReadyLegs(job: JobData) : Promise<void> {
                     }
                 },
                 {
-                    method: "POST",
                     headers: {
                         "Content-Type": "application/json",
                         "Travis-API-Version": "3",
@@ -243,4 +277,5 @@ type RepositoryInfo = {
     branch: string
     sha: string
     travisRequest?: string
+    travisBuild?: string
 }
