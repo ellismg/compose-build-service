@@ -9,6 +9,7 @@ const dependencyMap: {[index: string]: string[]} = {
     "pulumi-aws-infra": ["pulumi", "pulumi-aws"],
     "pulumi-aws-serverless": ["pulumi", "pulumi-aws"],
     "pulumi-cloud": ["pulumi", "pulumi-aws", "pulumi-aws-infra" ],
+    "home": ["pulumi", "pulumi-aws", "pulumi-cloud" ],
 }
 
 const downstreamMap = computeDownstreamMap(dependencyMap);
@@ -63,6 +64,9 @@ const api = new serverless.apigateway.API("api", {
             method: "POST",
             path: "/jobs",
             handler: async (req) => {
+                const awssdk = await import("aws-sdk");
+                const s3 = new awssdk.S3();
+
                 const body = JSON.parse(req.isBase64Encoded ? Buffer.from(req.body, "base64").toString() : req.body);
 
                 if (body.branch === undefined || body.repo === undefined) {
@@ -87,6 +91,13 @@ const api = new serverless.apigateway.API("api", {
                         buildComplete: false,
                         ...await getBranchAndRef(repo, body.branch)
                     }
+
+                    await s3.putObject({
+                        ACL: "public-read",
+                        Bucket: "public.eng.pulumi.com",
+                        Key: `compose/build/${id}/commits/${repo}`,
+                        Body: repositories[repo].sha
+                    }).promise();
                 }
 
                 const job = {
