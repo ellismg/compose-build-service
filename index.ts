@@ -3,13 +3,18 @@ import * as pulumi from "@pulumi/pulumi";
 import * as serverless from "@pulumi/aws-serverless";
 
 const dependencyMap: {[index: string]: string[]} = {
+    "home": ["pulumi", "pulumi-aws", "pulumi-cloud" ],
     "pulumi": [],
-    "pulumi-terraform": ["pulumi"],
     "pulumi-aws": ["pulumi", "pulumi-terraform"],
     "pulumi-aws-infra": ["pulumi", "pulumi-aws"],
     "pulumi-aws-serverless": ["pulumi", "pulumi-aws"],
-    "pulumi-cloud": ["pulumi", "pulumi-aws", "pulumi-aws-infra" ],
-    "home": ["pulumi", "pulumi-aws", "pulumi-cloud" ],
+    "pulumi-azure": ["pulumi", "pulumi-terraform"],
+    "pulumi-azure-serverless": ["pulumi", "pulumi-azure"],
+    "pulumi-cloud": ["pulumi", "pulumi-docker", "pulumi-aws", "pulumi-aws-infra" ],
+    "pulumi-docker": ["pulumi" ],
+    "pulumi-gcp": ["pulumi", "pulumi-terraform"],
+    "pulumi-kubernetes": ["pulumi"],
+    "pulumi-terraform": ["pulumi"],
 }
 
 const downstreamMap = computeDownstreamMap(dependencyMap);
